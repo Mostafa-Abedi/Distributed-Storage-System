@@ -1,4 +1,3 @@
-import server.data.DataServer;
 import server.metadata.MetadataServer;
 import client.ClientUI;
 
@@ -17,15 +16,7 @@ public class MainLauncher {
             Naming.rebind("MetadataServer", metadataServer);
             System.out.println("MetadataServer is running...");
 
-            // Start multiple Data Servers
-            String[] dataServerNames = {"DataServer1", "DataServer2", "DataServer3"};
-            for (String serverName : dataServerNames) {
-                DataServer dataServer = new DataServer(serverName, metadataServer);
-                Naming.rebind(serverName, dataServer);
-                System.out.println(serverName + " is running...");
-            }
-
-            // Start Client UI
+            // Launch Client UI
             javax.swing.SwingUtilities.invokeLater(ClientUI::new);
 
         } catch (Exception e) {
