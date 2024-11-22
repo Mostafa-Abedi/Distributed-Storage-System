@@ -3,14 +3,23 @@ package client;
 import interfaces.DataService;
 import interfaces.MetadataService;
 import server.metadata.FileMetadata;
+import server.data.DataServer;
+import server.data.DataServerMain;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.File;
-import java.nio.file.Files;
 import java.rmi.Naming;
-import java.util.List;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.rmi.RemoteException;
+import java.rmi.server.UnicastRemoteObject;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+
+
 
 public class ClientUI {
     private String username;
@@ -141,17 +150,42 @@ public class ClientUI {
                 JOptionPane.showMessageDialog(serverFrame, "Please select a server.", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
+        
+            // Extract the server name from the selected value
             connectedDataServer = selected.split("\\|")[0].split(":")[1].trim();
-            JOptionPane.showMessageDialog(serverFrame, "Connected to " + connectedDataServer);
-            serverFrame.dispose();
-            initializeMainUI();
+        
+            try {
+                // Lookup MetadataService
+                MetadataService metadataService = (MetadataService) Naming.lookup("rmi://localhost/MetadataServer");
+        
+                // Retrieve the storage path from metadata
+                String storagePath = metadataService.getStoragePath(connectedDataServer); // Ensure getStoragePath is implemented in MetadataService
+        
+                if (storagePath == null || storagePath.isEmpty()) {
+                    JOptionPane.showMessageDialog(serverFrame, "Storage path not found for the selected server.", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+        
+                // Initialize the DataServer
+                DataServer dataServer = new DataServer(connectedDataServer, storagePath, metadataService);
+                Naming.rebind("rmi://localhost/" + connectedDataServer, dataServer);
+        
+                JOptionPane.showMessageDialog(serverFrame, "DataServer " + connectedDataServer + " initialized with storage at " + storagePath + " and started.");
+                serverFrame.dispose();
+                initializeMainUI();
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(serverFrame, "Error initializing DataServer: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                ex.printStackTrace();
+            }
         });
+        
+              
 
         createServerButton.addActionListener(e -> {
             JTextField serverNameField = new JTextField();
             JButton browseButton = new JButton("Browse");
             JLabel folderLabel = new JLabel("No folder selected");
-
+        
             browseButton.addActionListener(evt -> {
                 JFileChooser folderChooser = new JFileChooser();
                 folderChooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -160,40 +194,50 @@ public class ClientUI {
                     folderLabel.setText(folderChooser.getSelectedFile().getAbsolutePath());
                 }
             });
-
+        
             Object[] fields = {
                     "Server Name:", serverNameField,
                     "Data Location:", folderLabel,
                     browseButton
             };
-
+        
             int result = JOptionPane.showConfirmDialog(serverFrame, fields, "Create Data Server", JOptionPane.OK_CANCEL_OPTION);
             if (result == JOptionPane.OK_OPTION) {
                 String serverName = serverNameField.getText().trim();
                 String serverLocation = folderLabel.getText();
-
+        
                 if (serverName.isEmpty() || "No folder selected".equals(serverLocation)) {
                     JOptionPane.showMessageDialog(serverFrame, "All fields are required.", "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-
+        
                 try {
-                    boolean success = metadataService.registerDataServer(serverName, serverLocation, username);
-                    if (success) {
-                        serverListModel.addElement("Name: " + serverName +
-                                " | Location: " + serverLocation +
-                                " | Owner: " + username);
-                        JOptionPane.showMessageDialog(serverFrame, "Data Server created successfully!");
-                    } else {
-                        JOptionPane.showMessageDialog(serverFrame, "Failed to create Data Server.", "Error", JOptionPane.ERROR_MESSAGE);
+                    // Instantiate and bind DataServer
+                    DataServer dataServer = new DataServer(serverName, serverLocation, metadataService);
+                    java.rmi.registry.LocateRegistry.getRegistry().rebind(serverName, dataServer);
+        
+                    // Add DataServer details to the metadata service
+                    boolean metadataUpdated = metadataService.registerDataServer(serverName, serverLocation, username);
+        
+                    if (!metadataUpdated) {
+                        JOptionPane.showMessageDialog(serverFrame, "Failed to update metadata service with DataServer details.", "Error", JOptionPane.ERROR_MESSAGE);
+                        return;
                     }
+        
+                    // Add to UI list and notify user
+                    serverListModel.addElement("Name: " + serverName +
+                            " | Location: " + serverLocation +
+                            " | Owner: " + username);
+                    JOptionPane.showMessageDialog(serverFrame, "Data Server created and registered successfully!");
+        
+                    System.out.println("DataServer " + serverName + " registered successfully.");
                 } catch (Exception ex) {
-                    JOptionPane.showMessageDialog(serverFrame, "Error creating Data Server.", "Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(serverFrame, "Error creating Data Server: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                     ex.printStackTrace();
                 }
             }
         });
-    }
+    }        
 
     // Main File Management UI
     private void initializeMainUI() {
@@ -249,24 +293,41 @@ public class ClientUI {
 
         mainFrame.setVisible(true);
     }
-
-
+    
     private void refreshFileList() {
         try {
             fileListModel.clear();
-            Map<String, FileMetadata> files = metadataService.listFiles();
-            for (Map.Entry<String, FileMetadata> entry : files.entrySet()) {
-                String fileName = entry.getKey();
-                FileMetadata metadata = entry.getValue();
-                fileListModel.addElement("Name: " + fileName +
-                        " | Location: " + metadata.getDataServer() +
-                        " | Uploaded by: " + metadata.getOwner());
+    
+            // Lookup and cast the connected DataServer to DataService
+            DataService dataService = (DataService) Naming.lookup("rmi://localhost/" + connectedDataServer);
+            MetadataService metadataService = (MetadataService) Naming.lookup("rmi://localhost/MetadataServer");
+    
+            // Fetch files from the storage directory and metadata
+            List<String> directoryFiles = dataService.listFiles();
+            Map<String, FileMetadata> metadataFiles = metadataService.listFiles();
+    
+            for (String fileName : directoryFiles) {
+                if (!metadataFiles.containsKey(fileName)) {
+                    // Add missing files to the metadata with public permissions
+                    metadataService.registerFile(fileName, connectedDataServer, "public", null);
+                }
+                fileListModel.addElement("File: " + fileName + " | Server: " + connectedDataServer);
             }
+    
+            JOptionPane.showMessageDialog(mainFrame, "File list refreshed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(mainFrame, "Failed to refresh file list.", "Error", JOptionPane.ERROR_MESSAGE);
             e.printStackTrace();
         }
     }
+    
+    
+    
+    
+    
+    
+    
+    
 
     private void uploadFile() {
         JFileChooser fileChooser = new JFileChooser();
@@ -276,8 +337,7 @@ public class ClientUI {
             try {
                 byte[] content = Files.readAllBytes(file.toPath());
                 DataService dataService;
-    
-                // Retry logic for looking up the data server
+
                 try {
                     dataService = (DataService) Naming.lookup("rmi://localhost/" + connectedDataServer);
                 } catch (Exception e) {
@@ -285,7 +345,7 @@ public class ClientUI {
                     e.printStackTrace();
                     return;
                 }
-    
+
                 String permissions = JOptionPane.showInputDialog(mainFrame, "Enter permissions (comma-separated usernames, or leave blank for public):");
                 boolean success = dataService.storeFile(file.getName(), content, username);
                 if (success) {
@@ -301,7 +361,6 @@ public class ClientUI {
             }
         }
     }
-    
 
     private void downloadFile(String selectedFile) {
         if (selectedFile == null) {

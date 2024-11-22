@@ -59,8 +59,11 @@ public class MetadataServer extends UnicastRemoteObject implements MetadataServi
             pstmt.setString(1, username);
             pstmt.setString(2, password);
             pstmt.executeUpdate();
+            System.out.println("User created: " + username);
             return true;
         } catch (SQLException e) {
+            System.err.println("Failed to create user: " + username);
+            e.printStackTrace();
             return false;
         }
     }
@@ -73,60 +76,28 @@ public class MetadataServer extends UnicastRemoteObject implements MetadataServi
             ResultSet rs = pstmt.executeQuery();
             return rs.next();
         } catch (SQLException e) {
+            System.err.println("Failed to authenticate user: " + username);
+            e.printStackTrace();
             return false;
         }
     }
 
     @Override
     public synchronized boolean registerFile(String fileName, String dataServer, String owner, String permissions) throws RemoteException {
-        try (PreparedStatement pstmt = connection.prepareStatement("INSERT INTO file_metadata (file_name, data_server, owner, permissions) VALUES (?, ?, ?, ?)")) {
+        try (PreparedStatement pstmt = connection.prepareStatement(
+                "INSERT OR IGNORE INTO file_metadata (file_name, data_server, owner, permissions) VALUES (?, ?, ?, ?)")) {
             pstmt.setString(1, fileName);
             pstmt.setString(2, dataServer);
             pstmt.setString(3, owner);
-            pstmt.setString(4, permissions);
+            pstmt.setString(4, permissions == null || permissions.isEmpty() ? null : permissions);
             pstmt.executeUpdate();
             return true;
         } catch (SQLException e) {
+            e.printStackTrace();
             return false;
         }
     }
-
-    @Override
-    public synchronized String locateFile(String fileName) throws RemoteException {
-        try (PreparedStatement pstmt = connection.prepareStatement("SELECT data_server FROM file_metadata WHERE file_name = ?")) {
-            pstmt.setString(1, fileName);
-            ResultSet rs = pstmt.executeQuery();
-            return rs.next() ? rs.getString("data_server") : null;
-        } catch (SQLException e) {
-            return null;
-        }
-    }
-
-    @Override
-    public synchronized boolean deleteFile(String fileName) throws RemoteException {
-        try (PreparedStatement pstmt = connection.prepareStatement("DELETE FROM file_metadata WHERE file_name = ?")) {
-            pstmt.setString(1, fileName);
-            return pstmt.executeUpdate() > 0;
-        } catch (SQLException e) {
-            return false;
-        }
-    }
-
-    @Override
-    public synchronized boolean hasPermission(String username, String fileName) throws RemoteException {
-        try (PreparedStatement pstmt = connection.prepareStatement("SELECT permissions FROM file_metadata WHERE file_name = ?")) {
-            pstmt.setString(1, fileName);
-            ResultSet rs = pstmt.executeQuery();
-            if (rs.next()) {
-                String permissions = rs.getString("permissions");
-                return permissions == null || permissions.contains(username);
-            }
-        } catch (SQLException e) {
-            return false;
-        }
-        return false;
-    }
-
+    
     @Override
     public synchronized Map<String, FileMetadata> listFiles() throws RemoteException {
         Map<String, FileMetadata> files = new HashMap<>();
@@ -141,6 +112,64 @@ public class MetadataServer extends UnicastRemoteObject implements MetadataServi
         }
         return files;
     }
+    
+
+    @Override
+    public synchronized String locateFile(String fileName) throws RemoteException {
+        try (PreparedStatement pstmt = connection.prepareStatement("SELECT data_server FROM file_metadata WHERE file_name = ?")) {
+            pstmt.setString(1, fileName);
+            ResultSet rs = pstmt.executeQuery();
+            return rs.next() ? rs.getString("data_server") : null;
+        } catch (SQLException e) {
+            System.err.println("Failed to locate file: " + fileName);
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    @Override
+    public synchronized boolean deleteFile(String fileName) throws RemoteException {
+        try (PreparedStatement pstmt = connection.prepareStatement("DELETE FROM file_metadata WHERE file_name = ?")) {
+            pstmt.setString(1, fileName);
+            int rows = pstmt.executeUpdate();
+            if (rows > 0) {
+                System.out.println("File deleted: " + fileName);
+                return true;
+            }
+            return false;
+        } catch (SQLException e) {
+            System.err.println("Failed to delete file: " + fileName);
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    @Override
+    public synchronized boolean hasPermission(String username, String fileName) throws RemoteException {
+        try (PreparedStatement pstmt = connection.prepareStatement("SELECT owner, permissions FROM file_metadata WHERE file_name = ?")) {
+            pstmt.setString(1, fileName);
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next()) {
+                String owner = rs.getString("owner");
+                String permissions = rs.getString("permissions");
+    
+                // Allow if the user is the owner
+                if (owner.equals(username)) {
+                    return true;
+                }
+    
+                // Allow if the permissions are null (public) or contain the username
+                return permissions == null || permissions.isEmpty() || permissions.contains(username);
+            }
+        } catch (SQLException e) {
+            System.err.println("Failed to check permissions for file: " + fileName);
+            e.printStackTrace();
+        }
+        return false;
+    }
+    
+
+
 
     @Override
     public synchronized boolean registerDataServer(String serverName, String location, String owner) throws RemoteException {
@@ -149,9 +178,24 @@ public class MetadataServer extends UnicastRemoteObject implements MetadataServi
             pstmt.setString(2, location);
             pstmt.setString(3, owner);
             pstmt.executeUpdate();
+            System.out.println("DataServer registered: " + serverName);
             return true;
         } catch (SQLException e) {
+            System.err.println("Failed to register DataServer: " + serverName);
+            e.printStackTrace();
             return false;
+        }
+    }
+
+    @Override
+    public synchronized String getStoragePath(String serverName) throws RemoteException {
+        try (PreparedStatement pstmt = connection.prepareStatement("SELECT location FROM data_servers WHERE server_name = ?")) {
+            pstmt.setString(1, serverName);
+            ResultSet rs = pstmt.executeQuery();
+            return rs.next() ? rs.getString("location") : null;
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
         }
     }
 
@@ -168,6 +212,7 @@ public class MetadataServer extends UnicastRemoteObject implements MetadataServi
                 servers.add(server);
             }
         } catch (SQLException e) {
+            System.err.println("Failed to list DataServers.");
             e.printStackTrace();
         }
         return servers;

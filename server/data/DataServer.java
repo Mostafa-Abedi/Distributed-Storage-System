@@ -5,9 +5,13 @@ import interfaces.MetadataService;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.rmi.RemoteException;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 
 public class DataServer extends UnicastRemoteObject implements DataService {
     private final String serverName;
@@ -39,6 +43,9 @@ public class DataServer extends UnicastRemoteObject implements DataService {
             }
 
             System.out.println("File stored: " + fileName + " at " + storagePath);
+
+            // Register the file with the MetadataServer
+            metadataService.registerFile(fileName, serverName, owner, null); // Public by default
             return true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -58,7 +65,7 @@ public class DataServer extends UnicastRemoteObject implements DataService {
 
             System.out.println("Fetching file: " + fileName);
             return Files.readAllBytes(file.toPath());
-        } catch (Exception e) {
+        } catch (IOException e) {
             e.printStackTrace();
             return null;
         }
@@ -76,4 +83,22 @@ public class DataServer extends UnicastRemoteObject implements DataService {
         System.out.println("File not found for deletion: " + fileName);
         return false;
     }
+
+    @Override
+    public List<String> listFiles() throws RemoteException {
+        List<String> files = new ArrayList<>();
+        File storageDir = new File(storagePath);
+    
+        if (storageDir.exists() && storageDir.isDirectory()) {
+            for (File file : Objects.requireNonNull(storageDir.listFiles())) {
+                if (file.isFile()) {
+                    files.add(file.getName());
+                }
+            }
+        }
+    
+        return files;
+    }    
+    
+    
 }

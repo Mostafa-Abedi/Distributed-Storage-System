@@ -6,11 +6,12 @@ import javax.swing.*;
 import java.rmi.Naming;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.io.File;
 
 public class DataServerMain {
     public static void main(String[] args) {
         try {
-            // Start the RMI registry
+            // Start the RMI registry if not already running
             try {
                 LocateRegistry.createRegistry(Registry.REGISTRY_PORT);
                 System.out.println("RMI registry started.");
@@ -37,18 +38,45 @@ public class DataServerMain {
 
             String storagePath = folderChooser.getSelectedFile().getAbsolutePath();
 
+            // Validate storage path
+            File storageDir = new File(storagePath);
+            if (!storageDir.exists() && !storageDir.mkdirs()) {
+                JOptionPane.showMessageDialog(null, "Failed to create storage directory at: " + storagePath, "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            System.out.println("Validated storage directory at: " + storagePath);
+
             // Lookup MetadataService
-            MetadataService metadataService = (MetadataService) Naming.lookup("rmi://localhost/MetadataServer");
+            MetadataService metadataService;
+            try {
+                metadataService = (MetadataService) Naming.lookup("rmi://localhost/MetadataServer");
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(null, "Failed to connect to MetadataServer. Ensure it is running.", "Error", JOptionPane.ERROR_MESSAGE);
+                e.printStackTrace();
+                return;
+            }
 
             // Create and bind DataServer
-            DataServer dataServer = new DataServer(serverName, storagePath, metadataService);
-            Naming.rebind("rmi://localhost/" + serverName, dataServer);
+            try {
+                DataServer dataServer = new DataServer(serverName, storagePath, metadataService);
+                Naming.rebind("rmi://localhost/" + serverName, dataServer);
+                System.out.println("DataServer " + serverName + " initialized at storage path: " + storagePath);
 
-            System.out.println("DataServer " + serverName + " initialized at storage path: " + storagePath);
-            JOptionPane.showMessageDialog(null, "DataServer " + serverName + " is running and registered.");
+                // Notify MetadataServer about the new DataServer
+                boolean registered = metadataService.registerDataServer(serverName, storagePath, "system"); // Replace "system" with the appropriate owner
+                if (registered) {
+                    JOptionPane.showMessageDialog(null, "DataServer " + serverName + " is running and registered successfully.");
+                } else {
+                    JOptionPane.showMessageDialog(null, "Failed to register DataServer with MetadataServer.", "Error", JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (Exception e) {
+                JOptionPane.showMessageDialog(null, "Failed to start DataServer: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                e.printStackTrace();
+            }
         } catch (Exception e) {
             e.printStackTrace();
-            JOptionPane.showMessageDialog(null, "Failed to start DataServer: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(null, "Unexpected error occurred: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 }
