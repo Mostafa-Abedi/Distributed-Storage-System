@@ -184,29 +184,27 @@ public class ClientUI {
     }
 
     private void refreshFileList() {
-        if (connectedDataServer == null) {
-            JOptionPane.showMessageDialog(mainFrame, "Please connect to a data server first.", "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
         try {
             fileListModel.clear();
-
-            DataService dataService = (DataService) Naming.lookup("rmi://localhost/" + connectedDataServer);
-            List<String> directoryFiles = dataService.listFiles();
+    
+            // Fetch metadata for all DataServers
             Map<String, FileMetadata> metadataFiles = metadataService.listFiles();
-
-            for (String fileName : directoryFiles) {
-                if (!metadataFiles.containsKey(fileName)) {
-                    metadataService.registerFile(fileName, connectedDataServer, "public", null);
-                }
-                fileListModel.addElement("File: " + fileName + " | Server: " + connectedDataServer);
+    
+            for (Map.Entry<String, FileMetadata> entry : metadataFiles.entrySet()) {
+                String fileName = entry.getKey();
+                FileMetadata metadata = entry.getValue();
+    
+                // Display file information with DataServer details
+                fileListModel.addElement("File: " + fileName + " | Server: " + metadata.getDataServer());
             }
+    
+            JOptionPane.showMessageDialog(mainFrame, "File list refreshed successfully!", "Success", JOptionPane.INFORMATION_MESSAGE);
         } catch (Exception e) {
             JOptionPane.showMessageDialog(mainFrame, "Failed to refresh file list.", "Error", JOptionPane.ERROR_MESSAGE);
             e.printStackTrace();
         }
     }
+    
     
     // Data Server Selection UI
     private void initializeDataServerSelectionUI() {
@@ -408,15 +406,19 @@ public class ClientUI {
             JOptionPane.showMessageDialog(mainFrame, "Please select a file to download.", "Warning", JOptionPane.WARNING_MESSAGE);
             return;
         }
-
+    
         String fileName = selectedFile.split(" \\| ")[0].substring(6); // Extract file name from display
         try {
-            if (!metadataService.hasPermission(username, fileName)) {
-                JOptionPane.showMessageDialog(mainFrame, "You do not have permission to download this file.", "Error", JOptionPane.ERROR_MESSAGE);
+            FileMetadata metadata = metadataService.listFiles().get(fileName);
+    
+            if (metadata == null) {
+                JOptionPane.showMessageDialog(mainFrame, "Metadata for the selected file not found.", "Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-
-            DataService dataService = (DataService) Naming.lookup("rmi://localhost/" + connectedDataServer);
+    
+            String dataServerName = metadata.getDataServer();
+            DataService dataService = (DataService) Naming.lookup("rmi://localhost/" + dataServerName);
+    
             byte[] content = dataService.fetchFile(fileName);
             if (content != null) {
                 JFileChooser saveChooser = new JFileChooser();
@@ -434,6 +436,7 @@ public class ClientUI {
             e.printStackTrace();
         }
     }
+    
 
     private void deleteFile(String selectedFile) {
         if (selectedFile == null) {
