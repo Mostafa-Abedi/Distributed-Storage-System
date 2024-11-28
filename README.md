@@ -107,20 +107,6 @@ The architecture comprises the following key components:
 
 ---
 
-## **Demo Presentation**
-
-### **Slide Topics**:
-1. **Introduction**: Overview of the system.
-2. **System Architecture**: Breakdown of components and responsibilities.
-3. **Workflow**: Detailed explanation of client and server interactions.
-4. **Key Features**: Highlight what makes this system unique.
-5. **Demo Walkthrough**: Show live examples of file operations.
-6. **Comparison**: Compare with existing systems (e.g., HDFS, S3).
-7. **Evaluation**: Discuss performance, scalability, and security.
-8. **Future Work**: Outline potential improvements.
-9. **Q&A Session**: Open the floor for questions.
-
----
 
 ## **Contributors**
 - **Mostafa Abedi**
