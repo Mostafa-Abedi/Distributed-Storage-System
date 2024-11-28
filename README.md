@@ -77,7 +77,7 @@ The architecture comprises the following key components:
    ```bash
    git clone https://github.com/Mostafa-Abedi/Distributed-Storage-System.git
    cd Distributed-Storage-System
-   ./run
+   run.bat
    ```
 ---
 
