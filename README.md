@@ -71,6 +71,15 @@ The architecture comprises the following key components:
    - On system startup, all DataServers listed in the metadata are initialized automatically.
 
 ---
+## **How to Run**
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Mostafa-Abedi/Distributed-Storage-System.git
+   cd Distributed-Storage-System
+   ./run
+   ```
+---
 
 ## **Pros and Cons**
 
